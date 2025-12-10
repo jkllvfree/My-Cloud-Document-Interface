@@ -20,25 +20,22 @@ function App() {
     localStorage.removeItem('user'); // 记得清除缓存
   };
 
-  // ✨ 核心修复：更新用户信息的函数
+  
   const handleUpdateUser = (newInfo) => {
     console.log("App 更新用户信息:", newInfo);
-    
-    // 🛠️ 修复点 1：使用正确的 setter (setUser)
     setUser(newInfo); 
-    
     // 同步更新 localStorage
     localStorage.setItem('user', JSON.stringify(newInfo)); 
   };
 
+  // 根据 user 状态渲染不同页面，有USER就是Home，没有就是Auth
   return (
     <div>
       {user ? (
-        // 🛠️ 修复点 2：一定要把 onUpdateUser 传进去！
         <HomePage 
           currentUser={user} 
           onLogout={handleLogout} 
-          onUpdateUser={handleUpdateUser} // <--- 关键！
+          onUpdateUser={handleUpdateUser} 
         />
       ) : (
         <AuthPage onLoginSuccess={handleLoginSuccess} />
