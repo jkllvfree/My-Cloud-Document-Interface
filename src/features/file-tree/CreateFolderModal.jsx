@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import { folderService } from '@/api/folder';
 
-export default function CreateFolderModal({ isOpen, onClose, parentId, parentName, currentUser, onSuccess }) {
+export default function CreateFolderModal({ isOpen, onClose, parentId, parentName, onSuccess }) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -12,7 +12,7 @@ export default function CreateFolderModal({ isOpen, onClose, parentId, parentNam
     if (!name.trim()) return alert("名称不能为空");
     setLoading(true);
     try {
-      const res = await folderService.createFolder(name, parentId, currentUser.id);
+      const res = await folderService.createFolder({name, parentId});
       if (res.code === 200) {
         setName('');
         onSuccess();

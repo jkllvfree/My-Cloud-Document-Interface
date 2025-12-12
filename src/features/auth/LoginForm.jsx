@@ -49,7 +49,15 @@ export default function LoginForm({ onLoginSuccess }) {
 
       // 3. 处理结果
       if (result.code === 200) {
-        onLoginSuccess && onLoginSuccess(result.data);
+        if (mode === 'login') {
+          // A. 如果是【登录】成功：后端返回了 token，直接进首页
+          onLoginSuccess && onLoginSuccess(result.data);
+        } else {
+          alert('注册成功！请使用新账号登录');
+          setMode('login'); 
+          setFormData(prev => ({ ...prev, password: '' }));
+        }
+
       } else {
         setError(result.msg || '操作失败');
       }

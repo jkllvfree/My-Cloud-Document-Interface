@@ -29,7 +29,7 @@ export default function ProfileEditForm({ currentUser, onUpdateUser }) {
 
     setIsLoading(true);
     try {
-      const result = await userService.updateInfo(currentUser.id, formData);
+      const result = await userService.updateInfo(formData);
       if (result.code === 200) {
         onUpdateUser({
           ...currentUser,

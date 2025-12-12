@@ -1,51 +1,36 @@
-const BASE_URL = 'http://localhost:8080/api';
+import { request } from '@/utils/request';
 
 export const userService = {
-  // 上传头像文件
-  uploadAvatarFile: async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    const response = await fetch(`${BASE_URL}/file/upload/avatar`, {
-      method: 'POST',
-      body: formData,
-    });
-    return response.json();
+  getUserDetail: (userId) => {
+    return request(`/user/detail/${userId}`);
   },
 
-  // 更新用户头像链接
-  updateUserAvatar: async (userId, avatarUrl) => {
-    const response = await fetch(`${BASE_URL}/user/update-avatar`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, avatarUrl }),
-    });
-    return response.json();
+  // 获取自己的信息
+  getMyInfo: () => {
+    return request('/user/me');
   },
 
-  // 更新基本信息
-  updateInfo: async (userId, { nickname, bio, phone, email }) => {
-    const response = await fetch(`${BASE_URL}/user/update/info`, {
+  // 更新头像 (注意：这里只传 URL 字符串给后端)
+  updateAvatar: (avatarUrl) => {
+    return request('/user/update/avatar', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId,
-        newNickname: nickname,
-        newBio: bio,
-        newPhoneNum: phone,
-        newEmail: email
-      }),
+      body: JSON.stringify({ avatarUrl })
     });
-    return response.json();
+  },
+
+  // 修改个人信息
+  updateInfo: ({nickname, bio, phone, email}) => {
+    return request('/user/update/info', {
+      method: 'POST',
+      body: JSON.stringify({ nickname, bio, phone, email })
+    });
   },
 
   // 修改密码
-  changePassword: async (userId, oldPassword, newPassword) => {
-    const response = await fetch(`${BASE_URL}/user/change-password`, {
+  changePassword: ({oldPassword, newPassword}) => {
+    return request('/user/change-password', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, oldPassword, newPassword }),
+      body: JSON.stringify({ oldPassword, newPassword })
     });
-    return response.json();
-  }
+  },
 };

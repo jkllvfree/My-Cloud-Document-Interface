@@ -13,7 +13,7 @@ export default function PasswordForm({ currentUser, onLogout }) {
 
     setIsLoading(true);
     try {
-      const result = await userService.changePassword(currentUser.id, passwords.old, passwords.new);
+      const result = await userService.changePassword({ oldPassword: passwords.old, newPassword: passwords.new });
       if (result.code === 200) {
         alert('密码修改成功，请重新登录');
         onLogout ? onLogout() : window.location.reload();

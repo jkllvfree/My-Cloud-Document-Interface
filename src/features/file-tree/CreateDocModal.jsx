@@ -6,7 +6,7 @@ import { DOC_TEMPLATES } from '@/constants/templates'; // 确保这个路径正�
 // 图标映射放在组件内部或单独的文件
 const IconMap = { FilePlus, Calendar, Users };
 
-export default function CreateDocModal({ isOpen, onClose, parentId, parentName, currentUser, onSuccess }) {
+export default function CreateDocModal({ isOpen, onClose, parentId, parentName,  onSuccess }) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('blank');
@@ -21,7 +21,10 @@ export default function CreateDocModal({ isOpen, onClose, parentId, parentName, 
     const content = template ? template.content : "";
 
     try {
-      const res = await folderService.createDocument(name, parentId, content, currentUser.id);
+      const res = await folderService.createDocument({
+        name: name, 
+        folderId: parentId, 
+        content: content});
       if (res.code === 200) {
         setName('');
         setSelectedTemplateId('blank');

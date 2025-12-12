@@ -16,6 +16,23 @@ export default function TipTapEditor({ docId, initialContent, onSave }) {
       attributes: {
         class: 'prose prose-slate max-w-none text-base leading-7 prose-headings:font-bold prose-headings:tracking-tight prose-p:my-2 prose-p:leading-relaxed prose-img:rounded-xl prose-img:shadow-lg prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline focus:outline-none min-h-[500px] p-8',
       },
+      handleDOMEvents: {
+        click: (view, event) => {
+          // 1. 检查是否按下了 Ctrl 键 (Windows) 或 Meta 键 (Mac 的 Command)
+          const isModifierPressed = event.ctrlKey || event.metaKey;
+
+          if (isModifierPressed) {
+            const link = event.target.closest('a');
+
+            if (link && link.href) {
+              // 3. 手动在新标签页打开
+              window.open(link.href, '_blank');
+              return true; // 阻止编辑器的默认行为
+            }
+          }
+          return false; // 其他情况交给编辑器默认处理
+        },
+      },
     },
   });
 

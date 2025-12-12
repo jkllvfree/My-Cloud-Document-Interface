@@ -4,8 +4,9 @@ import Header from '../features/home/Header';
 import EditorArea from '../features/home/EditorArea';
 import SettingsModal from '../components/SettingsModal';
 
-import { documentService } from '../api/document';
-import { userService } from '../api/user';
+import { documentService } from '@/api/document';
+import { userService } from '@/api/user';
+import { fileService } from '@/api/file';
 
 export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   // === 状态定义 ===
@@ -54,7 +55,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
     try {
       const result = await documentService.updateInfo({
         id: selectedDoc.id,
-        newContent: newContent
+        content: newContent
       });
       if (result.code === 200) {
         console.log("保存成功");
@@ -76,7 +77,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
     try {
       const result = await documentService.updateInfo({
         id: selectedDoc.id,
-        newName: newName
+        name: newName
       });
       
       if (result.code === 200) {
@@ -100,19 +101,22 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
     if (!file) return;
 
     try {
-      // 第一步：上传文件
-      const uploadRes = await userService.uploadAvatarFile(file);
+      const uploadRes = await fileService.uploadImage(file);
       if (uploadRes.code === 200) {
         const newUrl = uploadRes.data;
         setAvatarDisplay(newUrl);
-        
-        // 第二步：更新用户资料
-        await userService.updateUserAvatar(currentUser.id, newUrl);
-        
-        // 第三步：通知 App 更新全局状态
-        onUpdateUser && onUpdateUser({ ...currentUser, avatarUrl: newUrl });
+
+        const updateRes = await userService.updateAvatar( newUrl );
+        if (updateRes.code === 200) {
+             onUpdateUser && onUpdateUser({ ...currentUser, avatarUrl: newUrl });
+             alert("头像更新成功");
+        } else {
+
+             alert("图片上传成功但保存资料失败: " + updateRes.msg);
+        }
       }
     } catch (err) {
+      console.error("捕获到异常:", err);
       alert("头像上传失败");
     }
   };
