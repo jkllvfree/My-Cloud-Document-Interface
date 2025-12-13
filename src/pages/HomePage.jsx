@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Sidebar from '../features/home/Sidebar';
 import Header from '../features/home/Header';
 import EditorArea from '../features/home/EditorArea';
@@ -7,6 +7,7 @@ import SettingsModal from '../components/SettingsModal';
 import { documentService } from '@/api/document';
 import { userService } from '@/api/user';
 import { fileService } from '@/api/file';
+import { folderService } from '@/api/folder';
 
 export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   // === 状态定义 ===
@@ -19,6 +20,9 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState('view');
 
+  const [personalFiles, setPersonalFiles] = useState({ folders: [], documents: [] });
+  const [sharedFiles, setSharedFiles] = useState({ folders: [], documents: [] });
+
   // 文件树引用 (用于刷新列表)
   const fileTreeRef = useRef(null);
 
@@ -28,26 +32,58 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   }, [currentUser]);
 
   // === 业务逻辑 ===
+  // 加载文档详情
+    const fetchAllFiles = useCallback(async () => {
+    try {
+      // 并行请求两个接口
+      const [personalRes, sharedRes] = await Promise.all([
+        folderService.getContent(),       // 我的文件
+        folderService.getSharedContent()  // 共享文件
+      ]);
 
-  // 1. 加载文档详情
+      if (personalRes.code === 200) {
+        setPersonalFiles(personalRes.data || { folders: [], documents: [] });
+      }
+      if (sharedRes && sharedRes.code === 200) {
+        setSharedFiles(sharedRes.data || { folders: [], documents: [] });
+      }
+    } catch (error) {
+      console.error("加载文件列表失败:", error);
+    }
+  }, []);
+
+  // 初始化加载
   useEffect(() => {
-    if (!selectedDoc) return;
-    
-    const fetchDetail = async () => {
-      setDocLoading(true);
+    if (currentUser) {
+        fetchAllFiles();
+    }
+  }, [currentUser, fetchAllFiles]);
+
+  useEffect(() => {
+    // 1. 如果没有选中，或者是文件夹，就不请求
+    if (!selectedDoc || selectedDoc.type === 'folder') return;
+
+    const fetchDocDetail = async () => {
+      setDocLoading(true); // 开启加载状态
       try {
-        const result = await documentService.getDetail(selectedDoc.id);
-        if (result.code === 200) {
-          setDocContent(result.data.content);
+        const res = await documentService.getDetail(selectedDoc.id);
+        
+        if (res.code === 200) {
+          // ✅ 核心修复：拿到后端返回的 content，存入 state
+          setDocContent(res.data.content || ''); 
+        } else {
+          console.error("加载文档详情失败:", res.msg);
+          setDocContent(''); // 失败兜底
         }
       } catch (err) {
-        console.error("加载文档失败", err);
+        console.error("获取文档详情网络错误:", err);
       } finally {
-        setDocLoading(false);
+        setDocLoading(false); // 关闭加载状态
       }
     };
-    fetchDetail();
-  }, [selectedDoc?.id]); // 只有 id 变了才重载，避免改名时重载
+
+    fetchDocDetail();
+  }, [selectedDoc?.id]); // 👈 只要 ID 变了，就重新请求
 
   // 2. 保存文档内容
   const handleSaveDoc = async (newContent) => {
@@ -81,9 +117,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
       });
       
       if (result.code === 200) {
-        // 刷新左侧文件树
-        fileTreeRef.current?.refresh(selectedDoc.folderId);
-        // 更新本地记录的"原始名称"，防止下次误触发
+        fetchAllFiles();
         setSelectedDoc(prev => ({ ...prev, originalName: newName }));
       } else {
         // 失败回滚
@@ -129,6 +163,10 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
         fileTreeRef={fileTreeRef}
         onSelectDoc={(doc) => setSelectedDoc({ ...doc, originalName: doc.name })}
         currentUser={currentUser}
+        // ✅ 传递数据和刷新方法
+        personalData={personalFiles}
+        sharedData={sharedFiles}
+        onRefresh={fetchAllFiles}
       />
 
       {/* 右侧主体 */}

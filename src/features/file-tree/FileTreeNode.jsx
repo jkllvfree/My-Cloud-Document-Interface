@@ -48,8 +48,9 @@ const FileTreeNode = ({ item, type, onSelectDoc, onNodeContextMenu, refreshTrigg
   const handleRightClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (type === 'folder') {
-      onNodeContextMenu(e, item);
+    if (onNodeContextMenu) {
+        // 注意：这里建议传回 type，以便父组件知道是删文档还是删文件夹
+        onNodeContextMenu(e, item, type); 
     }
   };
 

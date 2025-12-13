@@ -33,4 +33,9 @@ export const userService = {
       body: JSON.stringify({ oldPassword, newPassword })
     });
   },
+
+  // 模糊搜索用户 (通过昵称)
+  searchUsers: (nickname) => {
+    return request(`/user/search?nickname=${nickname}`);
+  }
 };

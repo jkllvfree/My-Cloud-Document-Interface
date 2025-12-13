@@ -3,35 +3,50 @@ import FileTreeNode from '@/features/file-tree/FileTreeNode';
 import ContextMenu from '@/features/file-tree/ContextMenu';
 import CreateFolderModal from '@/features/file-tree/CreateFolderModal';
 import CreateDocModal from '@/features/file-tree/CreateDocModal';
+import ShareModal from '@/features/file-tree/ShareModal'; 
 import { folderService } from '@/api/folder';
 
-const FileTree = forwardRef(({ onSelectDoc, currentUser }, ref) => {
+const FileTree = forwardRef(({ onSelectDoc, currentUser, treeData, allowCreate = true, onRefresh }, ref) => {
   // === 状态管理 ===
-  const [rootContent, setRootContent] = useState({ folders: [], documents: [] });
+  // const [rootContent, setRootContent] = useState({ folders: [], documents: [] });
+  const { folders = [], documents = [] } = treeData || {};
   const [refreshNodeId, setRefreshNodeId] = useState(null); // 控制特定节点刷新
 
   // 右键菜单状态
-  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, targetId: null, targetName: '根目录' });
-  
+  const [contextMenu, setContextMenu] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    targetId: null,
+    targetName: "根目录",
+    type: "root",
+  });
+
   // 弹窗状态
-  const [createTarget, setCreateTarget] = useState({ id: null, name: '根目录' }); // 记录当前要对哪个文件夹进行操作
+  const [createTarget, setCreateTarget] = useState({
+    id: null,
+    name: "根目录",
+  }); // 记录当前要对哪个文件夹进行操作
   const [modalType, setModalType] = useState(null); // 'folder' | 'document' | null
-
-  // === 核心逻辑 ===
-
-  // 1. 获取根目录
-  const fetchRoot = async () => {
-    try {
-      const result = await folderService.getContent(null);
-      if (result.code === 200) setRootContent(result.data);
-    } catch(e) { console.error(e); }
-  };
+  //分享弹窗状态
+  const [shareTarget, setShareTarget] = useState({ id: null, name: "" });
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   useEffect(() => {
-    fetchRoot();
-    const closeMenu = () => setContextMenu(prev => ({ ...prev, visible: false }));
-    document.addEventListener('click', closeMenu);
-    return () => document.removeEventListener('click', closeMenu);
+    const handleClickOutside = () => {
+      // 只要点击了左键，就关闭菜单
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+    };
+
+    // 添加监听器
+    document.addEventListener("click", handleClickOutside);
+    // 同时也监听右键点击（防止点了别的地方右键，旧菜单还在）
+    // document.addEventListener('contextmenu', handleClickOutside);
+
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+      // document.removeEventListener('contextmenu', handleClickOutside);
+    };
   }, []);
 
   // 2. 暴露给父组件的方法
@@ -44,94 +59,163 @@ const FileTree = forwardRef(({ onSelectDoc, currentUser }, ref) => {
       }
     },
     triggerRootCreate: (type) => {
-      setCreateTarget({ id: null, name: '根目录' });
+      setCreateTarget({ id: null, name: "根目录" });
       setModalType(type);
-    }
+    },
   }));
 
+  // 处理右键菜单的“分享”点击
+  const openShareModal = () => {
+    // 设置当前要分享的文档信息
+    setShareTarget({ id: contextMenu.targetId, name: contextMenu.targetName });
+    // 关闭右键菜单
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+    // 打开弹窗
+    setIsShareModalOpen(true);
+  };
+
   // 3. 处理右键事件
-  const handleContextMenu = (e, item = null) => {
+  const handleContextMenu = (e, item = null, type = 'root') => {
     e.preventDefault();
+    e.stopPropagation(); // 🔥 阻止冒泡：防止点子元素触发父元素的右键
+
+    // ✅ 如果不允许创建（比如在共享栏），且点击的是空白处，则不显示菜单
+    if (!allowCreate && !item) return;
+
     setContextMenu({
       visible: true,
       x: e.clientX,
       y: e.clientY,
       targetId: item ? item.id : null,
-      targetName: item ? item.name : '根目录'
+      targetName: item ? item.name : "根目录",
+      type: type
     });
   };
 
   // 4. 打开创建弹窗 (从右键菜单触发)
   const openCreateModal = (type) => {
     setCreateTarget({ id: contextMenu.targetId, name: contextMenu.targetName });
-    setContextMenu(prev => ({ ...prev, visible: false }));
+    setContextMenu((prev) => ({ ...prev, visible: false }));
     setModalType(type);
   };
 
-  // 5. 创建成功后的回调
   const handleCreateSuccess = () => {
-    // 如果是在根目录创建，刷新根目录；否则触发对应节点的刷新
-    if (createTarget.id === null) fetchRoot();
-    else {
-      setRefreshNodeId(null);
-      setTimeout(() => setRefreshNodeId(createTarget.id), 50);
-    }
+    if (onRefresh) onRefresh();
+    setModalType(null);
   };
 
+  // return (
+  //   <div
+  //     className="w-full h-full min-h-[50px]"
+  //     onContextMenu={(e) => handleContextMenu(e, null)}
+  //   >
+  //     {/* 渲染文件夹 */}
+  //     {folders.map((folder) => (
+  //       <FileTreeNode
+  //         key={`folder-${folder.id}`}
+  //         item={folder}
+  //         type="folder"
+  //         onSelectDoc={onSelectDoc}
+  //         onNodeContextMenu={handleContextMenu}
+  //         refreshTrigger={refreshNodeId}
+  //       />
+  //     ))}
+  //     {/* 渲染文档 */}
+  //     {documents.map((doc) => (
+  //       <FileTreeNode
+  //         key={`doc-${doc.id}`}
+  //         item={doc}
+  //         type="document"
+  //         onSelectDoc={onSelectDoc}
+  //         onNodeContextMenu={handleContextMenu}
+  //         refreshTrigger={refreshNodeId}
+  //       />
+  //     ))}
   return (
-    <div className="w-full h-full min-h-[300px]" onContextMenu={(e) => handleContextMenu(e, null)}>
-      {/* 根目录渲染 */}
-      {rootContent.folders.map(folder => (
+    <div
+      className="w-full h-full min-h-[50px]"
+      // ✅ 1. 根目录背景右键：传入 'root'
+      onContextMenu={(e) => handleContextMenu(e, null, "root")}
+    >
+      {/* 渲染文件夹 */}
+      {folders.map((folder) => (
         <FileTreeNode
           key={`folder-${folder.id}`}
           item={folder}
           type="folder"
           onSelectDoc={onSelectDoc}
-          onNodeContextMenu={handleContextMenu}
+          // ✅ 2. 文件夹右键：显式传入 'folder'
+          // 假设 FileTreeNode 回调回传了 (e, item)，我们在这里拦截并加上类型
+          onNodeContextMenu={(e, nodeItem) =>
+            handleContextMenu(e, nodeItem, "folder")
+          }
           refreshTrigger={refreshNodeId}
         />
       ))}
-      {rootContent.documents.map(doc => (
+      {/* 渲染文档 */}
+      {documents.map((doc) => (
         <FileTreeNode
           key={`doc-${doc.id}`}
           item={doc}
           type="document"
           onSelectDoc={onSelectDoc}
-          onNodeContextMenu={handleContextMenu}
+          // ✅ 3. 文档右键：显式传入 'document'
+          onNodeContextMenu={(e, nodeItem) =>
+            handleContextMenu(e, nodeItem, "document")
+          }
           refreshTrigger={refreshNodeId}
         />
       ))}
 
-      {/* 空状态 */}
-      {rootContent.folders.length === 0 && rootContent.documents.length === 0 && (
-        <div className="text-center text-xs text-gray-400 mt-10">暂无文件<br />右键点击此处创建</div>
+      {/* 空状态提示 */}
+      {folders.length === 0 && documents.length === 0 && (
+        <div className="text-center text-xs text-gray-400 mt-4 italic">
+          {allowCreate ? "暂无文件，右键创建" : "暂无共享文档"}
+        </div>
       )}
 
-      {/* 独立组件：右键菜单 */}
-      <ContextMenu 
+      {/* 右键菜单 - 传入 allowCreate 控制显示 */}
+      <ContextMenu
         {...contextMenu}
-        onCreateFolder={() => openCreateModal('folder')}
-        onCreateDoc={() => openCreateModal('document')}
+        allowCreate={allowCreate} // ✅ 需修改 ContextMenu 组件支持此属性，或者在这里做条件渲染
+        onCreateFolder={() => openCreateModal("folder")}
+        onCreateDoc={() => openCreateModal("document")}
+        onShare={openShareModal}
       />
 
-      {/* 独立组件：弹窗 */}
-      <CreateFolderModal
-        isOpen={modalType === 'folder'}
-        onClose={() => setModalType(null)}
-        parentId={createTarget.id}
-        parentName={createTarget.name}
-        currentUser={currentUser}
-        onSuccess={handleCreateSuccess}
-      />
+      {/* ✅ 渲染分享弹窗 */}
+      {allowCreate && (
+        <ShareModal
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+          docId={shareTarget.id}
+          docName={shareTarget.name}
+          currentUser={currentUser}
+        />
+      )}
 
-      <CreateDocModal
-        isOpen={modalType === 'document'}
-        onClose={() => setModalType(null)}
-        parentId={createTarget.id}
-        parentName={createTarget.name}
-        currentUser={currentUser}
-        onSuccess={handleCreateSuccess}
-      />
+      {/* 只有允许创建时，才渲染弹窗 */}
+      {allowCreate && (
+        <>
+          <CreateFolderModal
+            isOpen={modalType === "folder"}
+            onClose={() => setModalType(null)}
+            parentId={createTarget.id}
+            parentName={createTarget.name}
+            currentUser={currentUser}
+            onSuccess={handleCreateSuccess}
+          />
+
+          <CreateDocModal
+            isOpen={modalType === "document"}
+            onClose={() => setModalType(null)}
+            parentId={createTarget.id}
+            parentName={createTarget.name}
+            currentUser={currentUser}
+            onSuccess={handleCreateSuccess}
+          />
+        </>
+      )}
     </div>
   );
 });

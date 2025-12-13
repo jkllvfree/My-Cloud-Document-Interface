@@ -7,6 +7,12 @@ export const folderService = {
     return request(`/folder/content${query}`);
   },
 
+  getSharedContent: () => {
+    // 假设后端接口是 /document/shared
+    // 这个接口返回的应该是一个文档列表 List<Document>
+    return request('/document/shared');
+  },
+
   // 创建文件夹
   createFolder: ({name, parentId}) => {
     return request('/folder/create', {
