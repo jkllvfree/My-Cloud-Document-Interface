@@ -187,6 +187,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
           docContent={docContent}
           docLoading={docLoading}
           onSaveDoc={handleSaveDoc}
+          currentUser={currentUser}
         />
       </div>
 

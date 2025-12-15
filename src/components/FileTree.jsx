@@ -67,6 +67,7 @@ const FileTree = forwardRef(({ onSelectDoc, currentUser, treeData, allowCreate =
   // 处理右键菜单的“分享”点击
   const openShareModal = () => {
     // 设置当前要分享的文档信息
+    console.log("正在打开分享弹窗，文档ID:", contextMenu.targetId); // 建议加上这行调试
     setShareTarget({ id: contextMenu.targetId, name: contextMenu.targetName });
     // 关闭右键菜单
     setContextMenu((prev) => ({ ...prev, visible: false }));
@@ -100,37 +101,30 @@ const FileTree = forwardRef(({ onSelectDoc, currentUser, treeData, allowCreate =
   };
 
   const handleCreateSuccess = () => {
+  // 情况 1: 在根目录创建 (createTarget.id 为 null)
+  // 这时候必须调用父组件的 onRefresh，因为根目录列表是父组件传进来的
+  if (!createTarget.id) {
     if (onRefresh) onRefresh();
-    setModalType(null);
-  };
+  } 
+  
+  // 情况 2: 在子文件夹里创建 (createTarget.id 有值)
+  // 💡 关键修改：不要调用 onRefresh()！而是触发内部局部刷新
+  else {
+    // 1. 先置空，保证状态确实发生了变化
+    setRefreshNodeId(null);
+    
+    // 2. 稍微延迟一下，再设置成当前文件夹 ID
+    // 这样对应的 FileTreeNode 就会监听到变化，自己去 fetchChildren()
+    setTimeout(() => {
+      setRefreshNodeId(createTarget.id);
+    }, 50);
+  }
+  
+  // 关闭弹窗
+  setModalType(null);
+};
 
-  // return (
-  //   <div
-  //     className="w-full h-full min-h-[50px]"
-  //     onContextMenu={(e) => handleContextMenu(e, null)}
-  //   >
-  //     {/* 渲染文件夹 */}
-  //     {folders.map((folder) => (
-  //       <FileTreeNode
-  //         key={`folder-${folder.id}`}
-  //         item={folder}
-  //         type="folder"
-  //         onSelectDoc={onSelectDoc}
-  //         onNodeContextMenu={handleContextMenu}
-  //         refreshTrigger={refreshNodeId}
-  //       />
-  //     ))}
-  //     {/* 渲染文档 */}
-  //     {documents.map((doc) => (
-  //       <FileTreeNode
-  //         key={`doc-${doc.id}`}
-  //         item={doc}
-  //         type="document"
-  //         onSelectDoc={onSelectDoc}
-  //         onNodeContextMenu={handleContextMenu}
-  //         refreshTrigger={refreshNodeId}
-  //       />
-  //     ))}
+
   return (
     <div
       className="w-full h-full min-h-[50px]"
@@ -144,10 +138,9 @@ const FileTree = forwardRef(({ onSelectDoc, currentUser, treeData, allowCreate =
           item={folder}
           type="folder"
           onSelectDoc={onSelectDoc}
-          // ✅ 2. 文件夹右键：显式传入 'folder'
-          // 假设 FileTreeNode 回调回传了 (e, item)，我们在这里拦截并加上类型
-          onNodeContextMenu={(e, nodeItem) =>
-            handleContextMenu(e, nodeItem, "folder")
+
+          onNodeContextMenu={(e, nodeItem, type) =>
+            handleContextMenu(e, nodeItem, type)
           }
           refreshTrigger={refreshNodeId}
         />

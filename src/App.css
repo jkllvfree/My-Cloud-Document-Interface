@@ -40,3 +40,39 @@
 .read-the-docs {
   color: #888;
 }
+
+.ProseMirror .collaboration-cursor__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 2px solid #0D0D0D;
+  border-right: 2px solid #0D0D0D;
+  word-break: normal;
+  pointer-events: none;
+}
+
+/* 2. 名字标签 (关键修改：设置为 absolute 让他浮起来) */
+.ProseMirror .collaboration-cursor__label {
+  position: absolute; /* 👈 关键：脱离文档流，不挤占位置 */
+  top: -1.4em;        /* 往上提，显示在光标头顶 */
+  left: -1px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: normal;
+  user-select: none;  /* 防止用户不小心选中这个标签 */
+  color: #fff;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px 3px 3px 0;
+  white-space: nowrap;
+  z-index: 10;        /* 保证在最上层 */
+  
+  /* 增加一点透明度，不那么刺眼 */
+  opacity: 0.8; 
+  transition: opacity 0.2s ease;
+}
+
+/* 鼠标不悬停在光标附近时，可以考虑把名字隐藏，只留色块，更清爽 (可选) */
+.ProseMirror .collaboration-cursor__caret:hover .collaboration-cursor__label {
+  opacity: 1;
+}

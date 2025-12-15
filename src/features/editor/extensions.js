@@ -9,10 +9,14 @@ import { ReactNodeViewRenderer } from '@tiptap/react';
 import ImageNodeView from '@/features/editor/nodes/ImageNodeView'; // 注意路径，指向你原有的组件
 
 export const EDITOR_EXTENSIONS = [
-  StarterKit,
   Placeholder.configure({
     placeholder: '开始输入文档内容...',
   }),
+
+  StarterKit.configure({
+    history: false, 
+  }),
+
   Link.configure({
     openOnClick: false, // 编辑模式下点击不直接跳转
 

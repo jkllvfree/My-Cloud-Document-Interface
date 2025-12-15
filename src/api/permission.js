@@ -27,7 +27,7 @@ export const permissionService = {
    */
   remove: ({documentId, userId}) => {
     return request('/permission/delete', {
-      method: 'POST',
+      method: 'DELETE',
       body: JSON.stringify({ documentId, userId }),
     });
   },

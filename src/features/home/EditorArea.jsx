@@ -2,7 +2,7 @@ import React from 'react';
 import { FileText } from 'lucide-react';
 import TipTapEditor from '@/components/TipTapEditor';
 
-export default function EditorArea({ selectedDoc, docContent, docLoading, onSaveDoc }) {
+export default function EditorArea({ selectedDoc, docContent, docLoading, onSaveDoc, currentUser }) {
   if (!selectedDoc) {
     return (
       <div className="flex-1 bg-gray-50 flex flex-col items-center justify-center text-gray-400">
@@ -23,6 +23,7 @@ export default function EditorArea({ selectedDoc, docContent, docLoading, onSave
         ) : (
           <TipTapEditor
             docId={selectedDoc.id}
+            currentUser={currentUser}
             initialContent={docContent}
             onSave={onSaveDoc}
           />

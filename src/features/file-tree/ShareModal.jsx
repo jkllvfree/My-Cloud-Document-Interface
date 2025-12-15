@@ -1,6 +1,15 @@
 // src/features/file-tree/ShareModal.jsx
 import React, { useState, useEffect, useCallback } from "react";
-import { X, Search, User, Trash2, Check, Shield, Eye } from "lucide-react";
+import {
+  X,
+  Search,
+  User,
+  Trash2,
+  Check,
+  Shield,
+  Eye,
+  Crown,
+} from "lucide-react";
 import { permissionService } from "@/api/permission";
 import { userService } from "@/api/user";
 
@@ -20,21 +29,39 @@ export default function ShareModal({
   const [searchResults, setSearchResults] = useState([]);
   const [selectedPermission, setSelectedPermission] = useState("viewer"); // 默认只读
 
-  // === 1. 加载现有成员 ===
   const fetchMembers = useCallback(async () => {
-    if (!docId) return;
+    if (!docId) {
+      console.warn(">>>> docId 为空，停止请求");
+      return;
+    }
+
     setLoadingMembers(true);
     try {
       const res = await permissionService.getMembers(docId);
+      console.log(">>>> 后端响应结果:", res);
+
       if (res.code === 200) {
-        // setMembers(res.data || []);
-        const realList = res.data.members || [];
+        let realList = [];
+        if (Array.isArray(res.data)) {
+          realList = res.data;
+        } else if (res.data?.members) {
+          realList = res.data.members;
+        }
+
+        console.log(">>>> 解析后的成员列表:", realList);
         setMembers(realList);
-        console.log("后端返回的成员数据:", res.data);
+      } else {
+        console.error(
+          ">>>> 获取成员失败，业务码:",
+          res.code,
+          "错误信息:",
+          res.msg
+        );
+        setMembers([]);
       }
     } catch (error) {
-      console.error(error);
-      setMembers([]); // 出错也重置为空数组
+      console.error(">>>> 请求发生异常:", error);
+      setMembers([]);
     } finally {
       setLoadingMembers(false);
     }
@@ -89,7 +116,7 @@ export default function ShareModal({
         setSearchResults([]);
         fetchMembers(); // 刷新列表
       } else {
-        console.error("添加协作者失败:", e);
+        console.error("添加协作者失败:", res);
         alert(res.msg);
       }
     } catch (e) {
@@ -102,9 +129,11 @@ export default function ShareModal({
   const handleRemove = async (userId) => {
     if (!window.confirm("确定要移除该协作者吗？")) return;
     try {
-      const res = await permissionService.removeMember({ docId, userId });
+      const res = await permissionService.remove({ documentId: docId, userId });
+      console.log(">>>> 移除协作者响应:", res);
       if (res.code === 200) fetchMembers();
     } catch (e) {
+      console.error("移除协作者失败:", e);
       alert("移除失败");
     }
   };
@@ -225,7 +254,7 @@ export default function ShareModal({
             <div className="space-y-3">
               {members.map((member) => (
                 <div
-                  key={member.id}
+                  key={member.userId}
                   className="flex items-center justify-between bg-white p-3 rounded-lg border border-gray-100 shadow-sm"
                 >
                   <div className="flex items-center gap-3">
@@ -247,29 +276,42 @@ export default function ShareModal({
                         {member.nickname || "用户 " + member.userId}
                       </div>
                       <div className="flex items-center gap-1 mt-0.5">
-                        {/* 权限标签 */}
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${
-                            member.permissionType === "editor"
-                              ? "bg-green-50 text-green-600 border-green-100"
-                              : "bg-gray-100 text-gray-600 border-gray-200"
-                          }`}
-                        >
-                          {member.permissionType === "editor" ? (
-                            <Shield size={10} />
-                          ) : (
-                            <Eye size={10} />
-                          )}
-                          {member.permissionType === "editor"
-                            ? "编辑者"
-                            : "阅读者"}
-                        </span>
-                        {/* 如果是 Owner */}
-                        {member.permissionType === "owner" && (
-                          <span className="text-[10px] bg-yellow-50 text-yellow-600 px-1.5 py-0.5 rounded border border-yellow-100">
-                            所有者
-                          </span>
-                        )}
+                        {(() => {
+                      
+                          const rawType = member.permissionType || "VIEWER";
+                          const type = String(rawType).toUpperCase();
+
+                          if (type === "OWNER") {
+                            return (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 bg-yellow-50 text-yellow-600 border-yellow-200">
+                                {/* 所有者：金黄色 + 皇冠 */}
+                                <Crown
+                                  size={10}
+                                  className="fill-current"
+                                />{" "}
+                                所有者
+                              </span>
+                            );
+                          } else if (type === "EDITOR") {
+                            return (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 bg-green-50 text-green-600 border-green-100">
+                                {/* 编辑者：绿色 + 盾牌 */}
+                                <Shield
+                                  size={10}
+                                  className="fill-current"
+                                />{" "}
+                                编辑者
+                              </span>
+                            );
+                          } else {
+                            return (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 bg-gray-100 text-gray-500 border-gray-200">
+                                {/* 阅读者：灰色 + 眼睛 */}
+                                <Eye size={10} /> 阅读者
+                              </span>
+                            );
+                          }
+                        })()}
                       </div>
                     </div>
                   </div>
