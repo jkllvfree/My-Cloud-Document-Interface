@@ -20,10 +20,13 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("view");
 
+  //个人工作区域
   const [personalFiles, setPersonalFiles] = useState({
     folders: [],
     documents: [],
   });
+
+  //共享文档区域
   const [sharedFiles, setSharedFiles] = useState({
     folders: [],
     documents: [],
@@ -207,7 +210,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
         />
 
         <EditorArea
-        isShared={isShared}
+          isShared={isShared}
           selectedDoc={selectedDoc}
           docContent={docContent}
           docLoading={docLoading}
