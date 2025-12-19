@@ -10,7 +10,7 @@ export const documentService = {
   updateInfo: ({id, name, content}) => {
     return request('/document/update/info', {
       method: 'POST',
-      body: JSON.stringify({ id, name, content }),
+      body: JSON.stringify({ documentId:id, name, content }),
     });
   }
 };

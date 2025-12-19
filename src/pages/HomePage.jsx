@@ -1,27 +1,35 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import Sidebar from '../features/home/Sidebar';
-import Header from '../features/home/Header';
-import EditorArea from '../features/home/EditorArea';
-import SettingsModal from '../components/SettingsModal';
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import Sidebar from "../features/home/Sidebar";
+import Header from "../features/home/Header";
+import EditorArea from "../features/home/EditorArea";
+import SettingsModal from "../components/SettingsModal";
 
-import { documentService } from '@/api/document';
-import { userService } from '@/api/user';
-import { fileService } from '@/api/file';
-import { folderService } from '@/api/folder';
+import { documentService } from "@/api/document";
+import { userService } from "@/api/user";
+import { fileService } from "@/api/file";
+import { folderService } from "@/api/folder";
 
 export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   // === 状态定义 ===
   const [selectedDoc, setSelectedDoc] = useState(null);
-  const [docContent, setDocContent] = useState('');
+  const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [avatarDisplay, setAvatarDisplay] = useState(currentUser?.avatarUrl);
-  
+
   // 设置弹窗状态
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState('view');
+  const [settingsTab, setSettingsTab] = useState("view");
 
-  const [personalFiles, setPersonalFiles] = useState({ folders: [], documents: [] });
-  const [sharedFiles, setSharedFiles] = useState({ folders: [], documents: [] });
+  const [personalFiles, setPersonalFiles] = useState({
+    folders: [],
+    documents: [],
+  });
+  const [sharedFiles, setSharedFiles] = useState({
+    folders: [],
+    documents: [],
+  });
+  //判断文档类型
+  const [isShared, setIsShared] = useState(false);
 
   // 文件树引用 (用于刷新列表)
   const fileTreeRef = useRef(null);
@@ -33,12 +41,12 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
 
   // === 业务逻辑 ===
   // 加载文档详情
-    const fetchAllFiles = useCallback(async () => {
+  const fetchAllFiles = useCallback(async () => {
     try {
       // 并行请求两个接口
       const [personalRes, sharedRes] = await Promise.all([
-        folderService.getContent(),       // 我的文件
-        folderService.getSharedContent()  // 共享文件
+        folderService.getContent(), // 我的文件
+        folderService.getSharedContent(), // 共享文件
       ]);
 
       if (personalRes.code === 200) {
@@ -55,25 +63,28 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   // 初始化加载
   useEffect(() => {
     if (currentUser) {
-        fetchAllFiles();
+      fetchAllFiles();
     }
   }, [currentUser, fetchAllFiles]);
 
   useEffect(() => {
     // 1. 如果没有选中，或者是文件夹，就不请求
-    if (!selectedDoc || selectedDoc.type === 'folder') return;
+    if (!selectedDoc || selectedDoc.type === "folder") return;
 
     const fetchDocDetail = async () => {
       setDocLoading(true); // 开启加载状态
       try {
         const res = await documentService.getDetail(selectedDoc.id);
-        
+
         if (res.code === 200) {
-          // ✅ 核心修复：拿到后端返回的 content，存入 state
-          setDocContent(res.data.content || ''); 
+          console.log("加载文档成功", res.data);
+
+          const { document, isShared } = res.data;
+          setDocContent(document.content || "");
+          setIsShared(isShared);
         } else {
           console.error("加载文档详情失败:", res.msg);
-          setDocContent(''); // 失败兜底
+          setDocContent(""); // 失败兜底
         }
       } catch (err) {
         console.error("获取文档详情网络错误:", err);
@@ -91,7 +102,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
     try {
       const result = await documentService.updateInfo({
         id: selectedDoc.id,
-        content: newContent
+        content: newContent,
       });
       if (result.code === 200) {
         console.log("保存成功");
@@ -105,27 +116,34 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
 
   // 3. 重命名文档
   const handleRenameDoc = async (newName) => {
-    if (!selectedDoc || !newName.trim() || newName === selectedDoc.originalName) return;
+    if (!selectedDoc || !newName.trim() || newName === selectedDoc.originalName)
+      return;
 
     const oldName = selectedDoc.name;
     // 此时 selectedDoc.name 已经被 onChange 改成新的了，这里主要负责提交后端
-    
+
     try {
       const result = await documentService.updateInfo({
         id: selectedDoc.id,
-        name: newName
+        name: newName,
       });
-      
+
       if (result.code === 200) {
         fetchAllFiles();
-        setSelectedDoc(prev => ({ ...prev, originalName: newName }));
+        setSelectedDoc((prev) => ({ ...prev, originalName: newName }));
       } else {
         // 失败回滚
-        setSelectedDoc(prev => ({ ...prev, name: prev.originalName || oldName }));
+        setSelectedDoc((prev) => ({
+          ...prev,
+          name: prev.originalName || oldName,
+        }));
         alert("重命名失败: " + result.msg);
       }
     } catch (err) {
-      setSelectedDoc(prev => ({ ...prev, name: prev.originalName || oldName }));
+      setSelectedDoc((prev) => ({
+        ...prev,
+        name: prev.originalName || oldName,
+      }));
     }
   };
 
@@ -140,13 +158,12 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
         const newUrl = uploadRes.data;
         setAvatarDisplay(newUrl);
 
-        const updateRes = await userService.updateAvatar( newUrl );
+        const updateRes = await userService.updateAvatar(newUrl);
         if (updateRes.code === 200) {
-             onUpdateUser && onUpdateUser({ ...currentUser, avatarUrl: newUrl });
-             alert("头像更新成功");
+          onUpdateUser && onUpdateUser({ ...currentUser, avatarUrl: newUrl });
+          alert("头像更新成功");
         } else {
-
-             alert("图片上传成功但保存资料失败: " + updateRes.msg);
+          alert("图片上传成功但保存资料失败: " + updateRes.msg);
         }
       }
     } catch (err) {
@@ -159,9 +176,11 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   return (
     <div className="flex h-screen bg-white overflow-hidden">
       {/* 左侧边栏 */}
-      <Sidebar 
+      <Sidebar
         fileTreeRef={fileTreeRef}
-        onSelectDoc={(doc) => setSelectedDoc({ ...doc, originalName: doc.name })}
+        onSelectDoc={(doc) =>
+          setSelectedDoc({ ...doc, originalName: doc.name })
+        }
         currentUser={currentUser}
         // ✅ 传递数据和刷新方法
         personalData={personalFiles}
@@ -171,18 +190,24 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
 
       {/* 右侧主体 */}
       <div className="flex-1 flex flex-col min-w-0">
-        <Header 
+        <Header
           currentUser={currentUser}
           avatarDisplay={avatarDisplay}
           selectedDoc={selectedDoc}
-          onTitleChange={(val) => setSelectedDoc(prev => ({ ...prev, name: val }))}
+          onTitleChange={(val) =>
+            setSelectedDoc((prev) => ({ ...prev, name: val }))
+          }
           onRenameDoc={handleRenameDoc}
           onAvatarUpload={handleAvatarUpload}
-          onOpenSettings={(tab) => { setSettingsTab(tab); setShowSettings(true); }}
+          onOpenSettings={(tab) => {
+            setSettingsTab(tab);
+            setShowSettings(true);
+          }}
           onLogout={onLogout}
         />
 
-        <EditorArea 
+        <EditorArea
+        isShared={isShared}
           selectedDoc={selectedDoc}
           docContent={docContent}
           docLoading={docLoading}
@@ -192,11 +217,14 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
       </div>
 
       {/* 弹窗 */}
-      <SettingsModal 
+      <SettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         currentUser={currentUser}
-        onUpdateUser={(info) => { onUpdateUser(info); setShowSettings(false); }}
+        onUpdateUser={(info) => {
+          onUpdateUser(info);
+          setShowSettings(false);
+        }}
         initialTab={settingsTab}
         onLogout={onLogout}
       />

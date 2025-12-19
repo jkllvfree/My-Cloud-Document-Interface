@@ -1,8 +1,15 @@
-import React from 'react';
-import { FileText } from 'lucide-react';
-import TipTapEditor from '@/components/TipTapEditor';
+import React from "react";
+import { FileText } from "lucide-react";
+import TipTapEditor from "@/components/TipTapEditor";
 
-export default function EditorArea({ selectedDoc, docContent, docLoading, onSaveDoc, currentUser }) {
+export default function EditorArea({
+  isShared,
+  selectedDoc,
+  docContent,
+  docLoading,
+  onSaveDoc,
+  currentUser,
+}) {
   if (!selectedDoc) {
     return (
       <div className="flex-1 bg-gray-50 flex flex-col items-center justify-center text-gray-400">
@@ -22,6 +29,8 @@ export default function EditorArea({ selectedDoc, docContent, docLoading, onSave
           <div className="text-center mt-20 text-gray-400">正在读取文档...</div>
         ) : (
           <TipTapEditor
+            key={selectedDoc.id}          //后面新加的
+            isShared={isShared}
             docId={selectedDoc.id}
             currentUser={currentUser}
             initialContent={docContent}

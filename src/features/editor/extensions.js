@@ -8,13 +8,9 @@ import Underline from '@tiptap/extension-underline';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 import ImageNodeView from '@/features/editor/nodes/ImageNodeView'; // 注意路径，指向你原有的组件
 
-export const EDITOR_EXTENSIONS = [
+export const BASE_EXTENSIONS = [
   Placeholder.configure({
     placeholder: '开始输入文档内容...',
-  }),
-
-  StarterKit.configure({
-    history: false, 
   }),
 
   Link.configure({

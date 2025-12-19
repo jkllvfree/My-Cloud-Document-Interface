@@ -8,6 +8,7 @@ export const DOC_TEMPLATES = [
     description: '从零开始创建一个新文档',
     content: '' // 空字符串
   },
+
   {
     id: 'weekly_report',
     name: '工作周报',
@@ -28,6 +29,7 @@ export const DOC_TEMPLATES = [
       ]
     })
   },
+  
   {
     id: 'meeting_notes',
     name: '会议纪要',
