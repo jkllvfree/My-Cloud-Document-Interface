@@ -82,9 +82,9 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
         if (res.code === 200) {
           console.log("加载文档成功", res.data);
 
-          const { document, isShared } = res.data;
+          const { document, shared } = res.data;
           setDocContent(document.content || "");
-          setIsShared(isShared);
+          setIsShared(shared);
         } else {
           console.error("加载文档详情失败:", res.msg);
           setDocContent(""); // 失败兜底
@@ -210,6 +210,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
         />
 
         <EditorArea
+          key={selectedDoc?.id}      //新加的
           isShared={isShared}
           selectedDoc={selectedDoc}
           docContent={docContent}
