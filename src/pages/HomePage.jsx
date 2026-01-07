@@ -19,7 +19,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   // 设置弹窗状态
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState("view");
-
+  
   //个人工作区域
   const [personalFiles, setPersonalFiles] = useState({
     folders: [],
@@ -119,8 +119,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
 
   // 3. 重命名文档
   const handleRenameDoc = async (newName) => {
-    if (!selectedDoc || !newName.trim() || newName === selectedDoc.originalName)
-      return;
+    if (!selectedDoc || !newName.trim() || newName === selectedDoc.originalName) return;
 
     const oldName = selectedDoc.name;
     // 此时 selectedDoc.name 已经被 onChange 改成新的了，这里主要负责提交后端
@@ -132,8 +131,29 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
       });
 
       if (result.code === 200) {
-        fetchAllFiles();
-        setSelectedDoc((prev) => ({ ...prev, originalName: newName }));
+        setSelectedDoc((prev) => ({
+          ...prev,
+          name: newName,
+          originalName: newName,
+        }));
+        if (selectedDoc.folderId) {
+          // 文档在文件夹内
+          if (fileTreeRef.current && typeof fileTreeRef.current.refreshFolder === 'function') {
+             fileTreeRef.current.refreshFolder(selectedDoc.folderId);
+          } 
+          else if (fileTreeRef.current && typeof fileTreeRef.current.loadData === 'function') {
+             // 有些 Tree 组件用 loadData 重新加载节点
+             fileTreeRef.current.loadData({ key: selectedDoc.folderId });
+          }
+          else {
+            console.warn("未找到 Sidebar 的刷新方法，请检查 Sidebar 组件的 useImperativeHandle");
+            fetchAllFiles(); 
+          }
+
+        } else {
+          // 文档在根目录
+          fetchAllFiles();
+        }
       } else {
         // 失败回滚
         setSelectedDoc((prev) => ({
@@ -210,7 +230,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
         />
 
         <EditorArea
-          key={selectedDoc?.id}      //新加的
+          key={selectedDoc?.id} //新加的
           isShared={isShared}
           selectedDoc={selectedDoc}
           docContent={docContent}
