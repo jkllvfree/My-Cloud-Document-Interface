@@ -1,9 +1,24 @@
-import React from 'react';
-import { FileText } from 'lucide-react';
-import TipTapEditor from '@/components/TipTapEditor';
+import React from "react";
+import { FileText } from "lucide-react";
+import TipTapEditor from "@/components/TipTapEditor";
 
-export default function EditorArea({ selectedDoc, docContent, docLoading, onSaveDoc, currentUser }) {
-  if (!selectedDoc) {
+export default function EditorArea({
+  isShared,
+  selectedDoc,
+  docContent,
+  docLoading,
+  onSaveDoc,
+  currentUser,
+}) {
+  if (docLoading) {
+    return (
+      <div className="h-full flex items-center justify-center text-gray-400">
+        加载文档中...
+      </div>
+    );
+  }
+
+  if (!selectedDoc || selectedDoc.type === "folder") {
     return (
       <div className="flex-1 bg-gray-50 flex flex-col items-center justify-center text-gray-400">
         <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mb-4">
@@ -15,20 +30,19 @@ export default function EditorArea({ selectedDoc, docContent, docLoading, onSave
     );
   }
 
+  // 3. ✅ 核心策略分发
+  // 这里的 key={...} 非常关键！
+  // 当文档切换时，key 的变化会强制 React 销毁旧组件、挂载新组件。
+  // 这彻底根除了“状态残留”、“flushSync 报错”以及“内容闪烁”的问题。
+
   return (
-    <div className="flex-1 bg-gray-50 overflow-hidden flex flex-col relative">
-      <div className="h-full p-4 md:p-8 overflow-hidden">
-        {docLoading ? (
-          <div className="text-center mt-20 text-gray-400">正在读取文档...</div>
-        ) : (
-          <TipTapEditor
-            docId={selectedDoc.id}
-            currentUser={currentUser}
-            initialContent={docContent}
-            onSave={onSaveDoc}
-          />
-        )}
-      </div>
-    </div>
+    <TipTapEditor
+      key={selectedDoc.id} // 这个 key 千万保留，它是解决报错的最后一道防线
+      docId={selectedDoc.id}
+      initialContent={docContent}
+      onSave={onSaveDoc}
+      currentUser={currentUser}
+      isShared={isShared}
+    />
   );
 }

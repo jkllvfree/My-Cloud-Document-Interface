@@ -26,12 +26,12 @@ const FileTreeNode = ({ item, type, onSelectDoc, onNodeContextMenu, refreshTrigg
 
   // 监听外部刷新信号
   useEffect(() => {
-    if (refreshTrigger === item.id) {
+    if (type === 'folder' && refreshTrigger === item.id) {
       setLoaded(false); // 标记为未加载
       setExpanded(true); // 自动展开
       fetchChildren();   // 重新获取
     }
-  }, [refreshTrigger, item.id, fetchChildren]);
+  }, [refreshTrigger, item.id, fetchChildren, type]);
 
   const handleToggle = async (e) => {
     e.stopPropagation();

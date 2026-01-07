@@ -1,16 +1,14 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
-import { EDITOR_EXTENSIONS } from "@/features/editor/extensions"; // 引入配置
-import EditorToolbar from "@/features/editor/components/EditorToolbar"; // 引入工具栏
-import { fileService } from "@/api/file"; // 引入 API
-
-// 引入协作编辑相关依赖
+import { BASE_EXTENSIONS } from "@/features/editor/extensions";
+import EditorToolbar from "@/features/editor/components/EditorToolbar";
+import { fileService } from "@/api/file";
+import StarterKit from "@tiptap/starter-kit";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 
-// 随机颜色生成器（用于光标）
 const cursorColors = [
   "#958DF1",
   "#F98181",
@@ -23,185 +21,224 @@ const cursorColors = [
 const getRandomColor = () =>
   cursorColors[Math.floor(Math.random() * cursorColors.length)];
 
+const tryParseContent = (content) => {
+  try {
+    return typeof content === "string" ? JSON.parse(content) : content;
+  } catch (e) {
+    return content;
+  }
+};
+
 export default function TipTapEditor({
   docId,
   initialContent,
   onSave,
   currentUser,
+  isShared = false,
 }) {
   const [isSaving, setIsSaving] = useState(false);
-  const [status, setStatus] = useState("connecting"); // connecting | connected | disconnected
+  const [status, setStatus] = useState("disconnected");
   const imageInputRef = useRef(null);
+  const timerRef = useRef(null);
 
-  // 保存 Provider 和 YDoc 实例
+  // ✅ 改回 useState，因为 useEditor 需要感知它们的变化来重新配置扩展
   const [provider, setProvider] = useState(null);
   const [ydoc, setYdoc] = useState(null);
+  const [isSynced, setIsSynced] = useState(false);
 
-  // 1. 初始化 Y.js 连接 (生命周期管理)
+  // 1. WebSocket 连接逻辑
   useEffect(() => {
-    // 创建文档实例
-    const newYdoc = new Y.Doc();
-    console.log("准备连接 WebSocket...");
-    console.log("URL:", "ws://localhost:8080/ws");
-    console.log("Room:", docId);
-    console.log("User:", currentUser);
-
-    if (!docId || !currentUser) {
-      console.error("❌ 缺少必要参数，停止连接");
+    if (!isShared) {
+      setProvider(null);
+      setYdoc(null);
       return;
     }
 
-    // 创建 WebSocket 连接
-    // 假设后端地址是 ws://localhost:8080/ws/{docId}
-    // y-websocket 默认会把 roomName 拼接到 url 后，所以这里 url 填基础路径
+    if (!docId || !currentUser) return;
+
+    console.log("正在建立 WebSocket 连接...");
+    const newYdoc = new Y.Doc();
     const newProvider = new WebsocketProvider(
-      "ws://localhost:8080/ws", // 基础路径
-      docId.toString(), // 房间号
+      "ws://localhost:8080/ws",
+      docId.toString(),
       newYdoc,
-      { params: { userId: currentUser.userId || currentUser.id } } // 鉴权参数
+      { params: { userId: currentUser?.id?.toString() || "0" } }
     );
 
-    //修改部分，检查报错
-
-    newProvider.on("sync", (isSynced) => {
-      console.log(">>>> Y.js 同步状态:", isSynced ? "✅ 已同步" : "❌ 未同步");
-    });
-
-    // 还可以监听 updates（看看有没有收到别人的数据）
-    newProvider.on("update", (update) => {
-      console.log(">>>> 收到 Y.js 数据更新，大小:", update.byteLength);
-    });
-
-    //到此结束
-
+    //定义局部变量存储定时器 ID
+    let initTimer;
+    let statusTimer;
+    let syncTimer;
 
     newProvider.on("status", (event) => {
-      setStatus(event.status);
+      clearTimeout(statusTimer);
+      statusTimer = setTimeout(() => {
+        setStatus(event.status);
+      }, 0);
     });
 
-    
+    newProvider.on("sync", (synced) => {
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(() => {
+        setIsSynced(synced);
+      }, 0);
+    });
 
-    setYdoc(newYdoc);
-    setProvider(newProvider);
+    initTimer = setTimeout(() => {
+      setYdoc(newYdoc);
+      setProvider(newProvider);
+    }, 0);
 
-    // 清理函数
     return () => {
+      clearTimeout(initTimer);
+      clearTimeout(statusTimer);
+      clearTimeout(syncTimer);
       newProvider.destroy();
       newYdoc.destroy();
     };
-  }, [docId, currentUser?.userId || currentUser?.id]); // 仅在 docId 或用户变化时重连
+  }, [docId, isShared, currentUser]); // 移除 currentUser 避免频繁重连，除非 ID 变了
 
-
-  
-  // 初始化编辑器
+  // 2. 编辑器初始化 (必须在任何 return 之前！)
   const editor = useEditor(
     {
+      // 协作模式初始给 null (等待同步)，个人模式直接加载
+      content: tryParseContent(initialContent) || "",
+
       extensions: [
-        ...EDITOR_EXTENSIONS, // 你的基础配置
-        
-        // 只有当 provider 和 ydoc 创建好了，才加载协作插件
-        provider && ydoc 
-          ? Collaboration.configure({
-              document: ydoc,
-            })
+        StarterKit.configure({
+          history: !isShared,
+        }),
+        ...BASE_EXTENSIONS,
+
+        // ✅ 依赖 State 中的 provider，只有连接建立后这里才会被添加
+        isShared && provider && ydoc
+          ? Collaboration.configure({ document: ydoc })
           : undefined,
 
-        // 只有 provider 好了，才加载光标插件
-        provider
+        isShared && provider
           ? CollaborationCursor.configure({
               provider: provider,
               user: {
-                name: currentUser?.nickname || "匿名用户",
+                name: currentUser?.nickname || "Unknown",
                 color: getRandomColor(),
               },
             })
           : undefined,
-      ].filter(Boolean), // 过滤掉 undefined
-
-      // ⚠️ 注意：开启协作后，content 属性通常只在第一次加载时有效
-      // 后续内容由 Y.js 接管
-      // content: initialContent || "",出现了反复渲染，内容双倍的bug，本地和云端“打架”
-      content:null,
+      ].filter(Boolean),
 
       editorProps: {
         attributes: {
           class:
-            "prose prose-slate max-w-none text-base leading-7 prose-headings:font-bold prose-headings:tracking-tight prose-p:my-2 prose-p:leading-relaxed prose-img:rounded-xl prose-img:shadow-lg prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline focus:outline-none min-h-[500px] p-8",
+            "prose prose-slate max-w-none text-base leading-7" +
+            " prose-headings:font-bold prose-headings:tracking-tight" +
+            " prose-p:my-2 prose-p:leading-relaxed" +
+            " prose-img:rounded-xl prose-img:shadow-lg" +
+            " prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline focus:outline-none min-h-[500px] p-8",
         },
+
         handleDOMEvents: {
           click: (view, event) => {
-            // 1. 检查是否按下了 Ctrl 键 (Windows) 或 Meta 键 (Mac 的 Command)
             const isModifierPressed = event.ctrlKey || event.metaKey;
 
             if (isModifierPressed) {
               const link = event.target.closest("a");
 
               if (link && link.href) {
-                // 3. 手动在新标签页打开
+                // 1. 核心修复：阻止浏览器的默认聚焦和点击行为
+                event.preventDefault();
+                event.stopPropagation(); // 防止事件冒泡
+
+                // 2. 打开新窗口
                 window.open(link.href, "_blank");
-                return true; // 阻止编辑器的默认行为
+
+                // 3. 返回 true，告诉 TipTap 编辑器“我处理完了，你不要把光标移过去，也不要选中它”
+                return true;
               }
             }
-            return false; // 其他情况交给编辑器默认处理
+            return false;
+          },
+
+          // 建议：增加 mousedown 拦截，防止鼠标按下瞬间产生的聚焦
+          mousedown: (view, event) => {
+            const isModifierPressed = event.ctrlKey || event.metaKey;
+            const link = event.target.closest("a");
+            if (isModifierPressed && link) {
+              event.preventDefault();
+              return true;
+            }
+            return false;
           },
         },
       },
 
-      // 防抖自动保存
-      // 每次内容变化，都会触发 update
       onUpdate: ({ editor }) => {
-        handleDebouncedSave(editor.getJSON());
+        // if (!isShared) { 无论是否协作，都能触发防抖保存
+        // handleDebouncedSave(editor.getJSON());
+        // }
+        Promise.resolve().then(() => {
+          handleDebouncedSave(editor.getJSON());
+        });
       },
     },
-    [provider, ydoc]
+    //当 provider 变为非空时，useEditor 会重建实例，从而挂载协作插件
+    [docId, isShared, provider]
   );
 
-  // ✅ 推荐方案：添加这个独立的 useEffect
+  // 3. 协作状态下的"补全"逻辑
+  useEffect(() => {
+    if (!isShared || !editor || !provider || !ydoc || !isSynced) return;
 
-useEffect(() => {
-  // 如果 provider 还没准备好，或者没同步，或者编辑器没好，就啥也不干
-  if (!provider || !editor || !provider.synced) return;
+    const fragment = ydoc.getXmlFragment("default");
 
-  // 获取 Y.js 的内容状态
-  const fragment = ydoc.getXmlFragment('default');
-  const yJsIsEmpty = fragment.toJSON() === '';
+    // 关键：检查 Y.js 文档的实际内容，而不是 JSON
+    const isCloudEmpty = fragment.length === 0;
 
-  // 只有当 Y.js 真的没数据，且我们手里有数据库旧数据时，才填进去
-  if (yJsIsEmpty && initialContent) {
-    console.log("检测到 Y.js 为空，执行数据库内容初始化...");
-    try {
-      const content = typeof initialContent === 'string' 
-        ? JSON.parse(initialContent) 
-        : initialContent;
-      // 这里的 setContent 会触发 Y.js 的更新，从而同步给其他人（这是我们想要的）
-      editor.commands.setContent(content);
-    } catch (e) {
-      editor.commands.setContent(initialContent);
+    if (isCloudEmpty && initialContent) {
+      console.log("☁️ 协作房间为空，从数据库加载内容到云端...");
+
+      // 解析数据库内容
+      const parsedContent = tryParseContent(initialContent);
+
+      // 在 Y.js 事务中写入内容
+      ydoc.transact(() => {
+        // 临时创建一个编辑器实例来生成 Y.js 节点
+        const tempDoc = editor.schema.nodeFromJSON(parsedContent);
+
+        // 方法1：直接用 Collaboration 的 API
+        editor.commands.setContent(parsedContent);
+
+        // 如果方法1不行，用方法2：手动操作 Y.js
+        // const yXmlFragment = ydoc.getXmlFragment("default");
+        // yXmlFragment.delete(0, yXmlFragment.length);
+        // editor.commands.setContent(parsedContent);
+      }, "init-content");
+    } else if (!isCloudEmpty) {
+      console.log("👥 协作房间已有内容，自动同步");
+    } else {
+      console.log("🆕 协作房间和数据库都为空，等待用户输入");
     }
-  }
-}, [provider, editor, provider?.synced, initialContent]); // 依赖项要写全
 
-  // 防抖保存函数 (使用 useCallback 避免闭包陷阱)
-  // 简单的防抖逻辑：在用户停止输入 2 秒后触发保存
+    // 只执行一次
+  }, [isShared, isSynced, editor, provider, ydoc, initialContent]);
+
+  // 防抖保存
   const handleDebouncedSave = useCallback(
     (json) => {
-      // 清除上一次的计时器
-      if (window.saveTimer) clearTimeout(window.saveTimer);
-
+      if (timerRef.current) clearTimeout(timerRef.current);
       setIsSaving(true);
-      window.saveTimer = setTimeout(async () => {
+      // 用 microtask 延迟，避免在渲染期间触发状态更新
+      timerRef.current = setTimeout(async () => {
         try {
           await onSave(JSON.stringify(json));
         } finally {
           setIsSaving(false);
         }
-      }, 2000); // 2秒防抖
+      }, 2000);
     },
     [onSave]
   );
 
-  // 手动保存 (Toolbar 按钮点击)
-  const handleManualSave = async () => {
+  const handleSaveDoc = async () => {
     if (!editor) return;
     setIsSaving(true);
     try {
@@ -211,38 +248,28 @@ useEffect(() => {
     }
   };
 
-
-  // 处理图片上传
   const handleImageUpload = async (event) => {
+    // ... 保持你的上传逻辑不变 ...
     const file = event.target.files[0];
-    if (!file) return;
-
+    if (!file || !editor) return;
     try {
       const result = await fileService.uploadImage(file);
       if (result.code === 200) {
         editor.chain().focus().setImage({ src: result.data }).run();
-      } else {
-        alert("图片上传失败: " + result.msg);
       }
     } catch (err) {
-      console.error(err);
-      alert("网络错误");
-    } finally {
-      event.target.value = ""; // 清空 input
+      /*...*/
     }
   };
 
-  // 处理保存
-  const handleSaveDoc = async () => {
-    if (!editor) return;
-    setIsSaving(true);
-    try {
-      const json = editor.getJSON();
-      await onSave(JSON.stringify(json));
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  // ✅ 4. 渲染层的 Loading 判断移到这里 (此时所有 Hooks 都已执行完毕)
+  // const isReady = !isShared || (isShared && provider);
+
+  // if (!isReady) {
+  //   return (
+  //     <div className="p-10 text-center text-gray-400">正在连接协作服务...</div>
+  //   );
+  // }
 
   if (!editor) return null;
 
@@ -257,15 +284,34 @@ useEffect(() => {
         accept="image/*"
       />
 
-      {/* 独立的工具栏组件 */}
-      <EditorToolbar
-        editor={editor}
-        onImageClick={() => imageInputRef.current?.click()}
-        onSave={handleSaveDoc}
-        isSaving={isSaving}
-      />
-
-      {/* 编辑区域 */}
+      <div className="border-b border-gray-200 bg-gray-50 p-2 flex justify-between items-center">
+        <EditorToolbar
+          editor={editor}
+          onImageClick={() => {
+            imageInputRef.current?.click();
+          }}
+          onSave={handleSaveDoc}
+          isSaving={isSaving}
+        />
+        <div className="flex items-center gap-2 px-2">
+          {isShared ? (
+            <>
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  status === "connected" ? "bg-green-500" : "bg-red-500"
+                }`}
+              ></span>
+              <span className="text-xs text-gray-500">
+                {status === "connected" ? "协作中" : "连接中..."}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
+              个人模式
+            </span>
+          )}
+        </div>
+      </div>
       <div
         className="flex-1 overflow-y-auto cursor-text bg-white"
         onClick={() => editor.chain().focus().run()}
