@@ -45,6 +45,7 @@ export default function TipTapEditor({
   const [provider, setProvider] = useState(null);
   const [ydoc, setYdoc] = useState(null);
   const [isSynced, setIsSynced] = useState(false);
+  const [isFirst, setIsFirst] = useState(true);
 
   // 1. WebSocket 连接逻辑
   useEffect(() => {
@@ -95,6 +96,7 @@ export default function TipTapEditor({
       clearTimeout(syncTimer);
       newProvider.destroy();
       newYdoc.destroy();
+      setIsFirst(false);
     };
   }, [docId, isShared, currentUser]); // 移除 currentUser 避免频繁重连，除非 ID 变了
 
@@ -102,8 +104,7 @@ export default function TipTapEditor({
   const editor = useEditor(
     {
       // 协作模式初始给 null (等待同步)，个人模式直接加载
-      content: tryParseContent(initialContent) || "",
-
+      content: isShared && !isFirst ? null : tryParseContent(initialContent),
       extensions: [
         StarterKit.configure({
           history: !isShared,
