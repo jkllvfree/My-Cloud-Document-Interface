@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir)",
+      "Bash(cmd.exe /c \"dir\")",
+      "Bash(Get-ChildItem -Force)",
+      "Bash(git -C \"/c/Users/52311/My document/Frontend\" status)",
+      "Bash(git -C \"/c/Users/52311/My document/Frontend\" log --oneline -10)",
+      "Bash(git -C \"/c/Users/52311/My document/Frontend\" ls-tree -r --name-only HEAD)",
+      "Bash(git -C \"/c/Users/52311/My document/Frontend\" diff HEAD~1 --name-only)"
+    ]
+  }
+}

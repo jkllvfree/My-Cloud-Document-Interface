@@ -18,6 +18,7 @@ export default function EditorToolbar({
   onImageClick,
   onSave,
   isSaving,
+  canManualSave = true,
 }) {
   if (!editor) return null;
 
@@ -38,6 +39,8 @@ export default function EditorToolbar({
 
   const canUndo = editor && editor.can().undo && editor.can().undo();
   const canRedo = editor && editor.can().redo && editor.can().redo();
+  const saveDisabled = isSaving || !canManualSave;
+  const saveText = isSaving ? "保存中..." : canManualSave ? "保存" : "无权限";
 
   return (
     <div className="flex flex-wrap items-center gap-1 p-2 border-b border-gray-200 bg-gray-50 rounded-t-lg sticky top-0 z-10">
@@ -117,11 +120,11 @@ export default function EditorToolbar({
       {/* 保存按钮 */}
       <button
         onClick={onSave}
-        disabled={isSaving}
+        disabled={saveDisabled}
         className="ml-auto flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-sm font-medium transition-colors shadow-sm"
       >
         <Save size={16} />
-        {isSaving ? "保存中..." : "保存"}
+        {saveText}
       </button>
     </div>
   );

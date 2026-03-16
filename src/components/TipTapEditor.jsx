@@ -24,7 +24,7 @@ const getRandomColor = () =>
 const tryParseContent = (content) => {
   try {
     return typeof content === "string" ? JSON.parse(content) : content;
-  } catch (e) {
+  } catch {
     return content;
   }
 };
@@ -35,82 +35,72 @@ export default function TipTapEditor({
   onSave,
   currentUser,
   isShared = false,
+  permissionType,
 }) {
+  const currentUserId = currentUser?.id;
+  const currentUserNickname = currentUser?.nickname;
+  const canManualSave = !isShared || permissionType === "OWNER" || permissionType === "EDITOR";
+
   const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState("disconnected");
   const imageInputRef = useRef(null);
   const timerRef = useRef(null);
+  const initCheckTimerRef = useRef(null);
+  const hasInitializedFromDbRef = useRef(false);
+  const userColorRef = useRef(getRandomColor());
 
-  // ✅ 改回 useState，因为 useEditor 需要感知它们的变化来重新配置扩展
   const [provider, setProvider] = useState(null);
   const [ydoc, setYdoc] = useState(null);
-  const [isSynced, setIsSynced] = useState(false);
 
   // 1. WebSocket 连接逻辑
   useEffect(() => {
     if (!isShared) {
       setProvider(null);
       setYdoc(null);
+      hasInitializedFromDbRef.current = false;
       return;
     }
 
-    if (!docId || !currentUser) return;
+    if (!docId || !currentUserId) return;
 
-    console.log("正在建立 WebSocket 连接...");
     const newYdoc = new Y.Doc();
     const newProvider = new WebsocketProvider(
       "ws://localhost:8080/ws",
       docId.toString(),
       newYdoc,
-      { params: { userId: currentUser?.id?.toString() || "0" } }
+      { params: { userId: currentUserId.toString() } }
     );
 
-    //定义局部变量存储定时器 ID
-    let initTimer;
     let statusTimer;
-    let syncTimer;
-
     newProvider.on("status", (event) => {
       clearTimeout(statusTimer);
       statusTimer = setTimeout(() => {
-        setStatus(event.status);
+      setStatus(event.status);
       }, 0);
     });
 
-    newProvider.on("sync", (synced) => {
-      clearTimeout(syncTimer);
-      syncTimer = setTimeout(() => {
-        setIsSynced(synced);
-      }, 0);
-    });
-
-    initTimer = setTimeout(() => {
-      setYdoc(newYdoc);
-      setProvider(newProvider);
-    }, 0);
+    setYdoc(newYdoc);
+    setProvider(newProvider);
+    hasInitializedFromDbRef.current = false;
 
     return () => {
-      clearTimeout(initTimer);
       clearTimeout(statusTimer);
-      clearTimeout(syncTimer);
       newProvider.destroy();
       newYdoc.destroy();
     };
-  }, [docId, isShared, currentUser]); // 移除 currentUser 避免频繁重连，除非 ID 变了
+  }, [docId, isShared, currentUserId]);
 
   // 2. 编辑器初始化 (必须在任何 return 之前！)
   const editor = useEditor(
     {
-      // 协作模式初始给 null (等待同步)，个人模式直接加载
-      content: tryParseContent(initialContent) || "",
-
+      content: isShared ? null : tryParseContent(initialContent),
+      editable: !isShared || permissionType !== "VIEWER",
       extensions: [
         StarterKit.configure({
           history: !isShared,
         }),
         ...BASE_EXTENSIONS,
 
-        // ✅ 依赖 State 中的 provider，只有连接建立后这里才会被添加
         isShared && provider && ydoc
           ? Collaboration.configure({ document: ydoc })
           : undefined,
@@ -119,8 +109,9 @@ export default function TipTapEditor({
           ? CollaborationCursor.configure({
               provider: provider,
               user: {
-                name: currentUser?.nickname || "Unknown",
-                color: getRandomColor(),
+                name: currentUserNickname || "Unknown",
+                color: userColorRef.current,
+                id: currentUserId?.toString() || "0",
               },
             })
           : undefined,
@@ -172,54 +163,58 @@ export default function TipTapEditor({
       },
 
       onUpdate: ({ editor }) => {
-        // if (!isShared) { 无论是否协作，都能触发防抖保存
-        // handleDebouncedSave(editor.getJSON());
-        // }
+        if (isShared) return;
         Promise.resolve().then(() => {
           handleDebouncedSave(editor.getJSON());
         });
       },
     },
-    //当 provider 变为非空时，useEditor 会重建实例，从而挂载协作插件
-    [docId, isShared, provider]
+    [docId, isShared, provider, permissionType]
   );
 
-  // 3. 协作状态下的"补全"逻辑
+  // 3. 协作状态下：房间为空时由“最小 userId”负责把 document.content 写入 Yjs
   useEffect(() => {
-    if (!isShared || !editor || !provider || !ydoc || !isSynced) return;
+    if (!isShared || !editor || !provider || !ydoc || !currentUserId) return;
 
-    const fragment = ydoc.getXmlFragment("default");
+    const scheduleInitCheck = () => {
+      if (initCheckTimerRef.current) clearTimeout(initCheckTimerRef.current);
+      initCheckTimerRef.current = setTimeout(() => {
+        if (hasInitializedFromDbRef.current) return;
 
-    // 关键：检查 Y.js 文档的实际内容，而不是 JSON
-    const isCloudEmpty = fragment.length === 0;
+        const fragment = ydoc.getXmlFragment("default");
+        const isCloudEmpty = fragment.length === 0;
+        if (!isCloudEmpty) return;
 
-    if (isCloudEmpty && initialContent) {
-      console.log("☁️ 协作房间为空，从数据库加载内容到云端...");
+        const states = Array.from(provider.awareness.getStates().values());
+        const userIds = states
+          .map((s) => Number(s?.user?.id))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        const myId = Number(currentUserId);
+        const minId = userIds.length ? Math.min(...userIds) : myId;
 
-      // 解析数据库内容
-      const parsedContent = tryParseContent(initialContent);
+        if (myId !== minId) return;
+        if (!initialContent) return;
 
-      // 在 Y.js 事务中写入内容
-      ydoc.transact(() => {
-        // 临时创建一个编辑器实例来生成 Y.js 节点
-        const tempDoc = editor.schema.nodeFromJSON(parsedContent);
-
-        // 方法1：直接用 Collaboration 的 API
+        const parsedContent = tryParseContent(initialContent);
         editor.commands.setContent(parsedContent);
+        hasInitializedFromDbRef.current = true;
+      }, 400);
+    };
 
-        // 如果方法1不行，用方法2：手动操作 Y.js
-        // const yXmlFragment = ydoc.getXmlFragment("default");
-        // yXmlFragment.delete(0, yXmlFragment.length);
-        // editor.commands.setContent(parsedContent);
-      }, "init-content");
-    } else if (!isCloudEmpty) {
-      console.log("👥 协作房间已有内容，自动同步");
-    } else {
-      console.log("🆕 协作房间和数据库都为空，等待用户输入");
-    }
+    scheduleInitCheck();
 
-    // 只执行一次
-  }, [isShared, isSynced, editor, provider, ydoc, initialContent]);
+    const onAwarenessChange = () => scheduleInitCheck();
+    const onYdocUpdate = () => scheduleInitCheck();
+
+    provider.awareness.on("change", onAwarenessChange);
+    ydoc.on("update", onYdocUpdate);
+
+    return () => {
+      provider.awareness.off("change", onAwarenessChange);
+      ydoc.off("update", onYdocUpdate);
+      if (initCheckTimerRef.current) clearTimeout(initCheckTimerRef.current);
+    };
+  }, [isShared, editor, provider, ydoc, initialContent, currentUserId]);
 
   // 防抖保存
   const handleDebouncedSave = useCallback(
@@ -240,6 +235,7 @@ export default function TipTapEditor({
 
   const handleSaveDoc = async () => {
     if (!editor) return;
+    if (isShared && !canManualSave) return;
     setIsSaving(true);
     try {
       await onSave(JSON.stringify(editor.getJSON()));
@@ -251,14 +247,17 @@ export default function TipTapEditor({
   const handleImageUpload = async (event) => {
     // ... 保持你的上传逻辑不变 ...
     const file = event.target.files[0];
+    event.target.value = '';
     if (!file || !editor) return;
     try {
       const result = await fileService.uploadImage(file);
       if (result.code === 200) {
         editor.chain().focus().setImage({ src: result.data }).run();
+      } else {
+        alert("图片上传失败: " + (result.msg || "未知错误"));
       }
-    } catch (err) {
-      /*...*/
+    } catch {
+      alert("图片上传失败");
     }
   };
 
@@ -292,6 +291,7 @@ export default function TipTapEditor({
           }}
           onSave={handleSaveDoc}
           isSaving={isSaving}
+          canManualSave={canManualSave}
         />
         <div className="flex items-center gap-2 px-2">
           {isShared ? (

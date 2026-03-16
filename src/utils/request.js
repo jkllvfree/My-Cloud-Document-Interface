@@ -9,10 +9,10 @@ export const request = async (endpoint, options = {}) => {
   // 1. 自动获取 Token
   const token = localStorage.getItem('token');
 
+  const isFormData = options?.body instanceof FormData;
+
   // 2. 组装默认 Header
-  const defaultHeaders = {
-    'Content-Type': 'application/json',
-  };
+  const defaultHeaders = isFormData ? {} : { 'Content-Type': 'application/json' };
 
   // 3. 如果有 Token，自动挂载到 Header
   if (token) {
@@ -35,12 +35,19 @@ export const request = async (endpoint, options = {}) => {
     if (response.status === 401) {
       // Token 过期或无效，强制登出
       localStorage.removeItem('token');
-      window.location.href = '/login'; // 或者触发一个全局事件
+      localStorage.removeItem('user');
+      window.location.href = '/';
       return Promise.reject({ msg: '登录已过期，请重新登录' });
     }
 
-    const resData = await response.json();
-    return resData;
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const resData = await response.json();
+      return resData;
+    }
+
+    const text = await response.text();
+    return { code: response.status, msg: text || response.statusText };
 
   } catch (error) {
     console.error('API Request Error:', error);

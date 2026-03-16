@@ -4,6 +4,7 @@ import TipTapEditor from "@/components/TipTapEditor";
 
 export default function EditorArea({
   isShared,
+  permissionType,
   selectedDoc,
   docContent,
   docLoading,
@@ -43,6 +44,7 @@ export default function EditorArea({
       onSave={onSaveDoc}
       currentUser={currentUser}
       isShared={isShared}
+      permissionType={permissionType}
     />
   );
 }

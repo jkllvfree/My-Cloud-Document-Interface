@@ -8,6 +8,7 @@ import { documentService } from "@/api/document";
 import { userService } from "@/api/user";
 import { fileService } from "@/api/file";
 import { folderService } from "@/api/folder";
+import { permissionService } from "@/api/permission";
 
 export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   // === 状态定义 ===
@@ -33,6 +34,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   });
   //判断文档类型
   const [isShared, setIsShared] = useState(false);
+  const [permissionType, setPermissionType] = useState(null);
 
   // 文件树引用 (用于刷新列表)
   const fileTreeRef = useRef(null);
@@ -85,19 +87,34 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
           const { document, shared } = res.data;
           setDocContent(document.content || "");
           setIsShared(shared);
+          if (!shared) {
+            setPermissionType(null);
+            return;
+          }
+
+          const memberRes = await permissionService.getMembers(selectedDoc.id);
+          if (memberRes?.code === 200) {
+            const members = memberRes?.data?.members || [];
+            const current = members.find((m) => m?.userId === currentUser?.id);
+            setPermissionType(current?.permissionType || null);
+          } else {
+            setPermissionType(null);
+          }
         } else {
           console.error("加载文档详情失败:", res.msg);
           setDocContent(""); // 失败兜底
+          setPermissionType(null);
         }
       } catch (err) {
         console.error("获取文档详情网络错误:", err);
+        setPermissionType(null);
       } finally {
         setDocLoading(false); // 关闭加载状态
       }
     };
 
     fetchDocDetail();
-  }, [selectedDoc?.id]); // 👈 只要 ID 变了，就重新请求
+  }, [selectedDoc?.id, currentUser?.id]); // 👈 只要 ID 变了，就重新请求
 
   // 2. 保存文档内容
   const handleSaveDoc = async (newContent) => {
@@ -173,12 +190,14 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
   // 4. 上传头像
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
 
     try {
       const uploadRes = await fileService.uploadImage(file);
       if (uploadRes.code === 200) {
         const newUrl = uploadRes.data;
+        const prevUrl = avatarDisplay;
         setAvatarDisplay(newUrl);
 
         const updateRes = await userService.updateAvatar(newUrl);
@@ -186,8 +205,11 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
           onUpdateUser && onUpdateUser({ ...currentUser, avatarUrl: newUrl });
           alert("头像更新成功");
         } else {
+          setAvatarDisplay(prevUrl);
           alert("图片上传成功但保存资料失败: " + updateRes.msg);
         }
+      } else {
+        alert("头像上传失败: " + (uploadRes.msg || "未知错误"));
       }
     } catch (err) {
       console.error("捕获到异常:", err);
@@ -232,6 +254,7 @@ export default function HomePage({ currentUser, onLogout, onUpdateUser }) {
         <EditorArea
           key={selectedDoc?.id} //新加的
           isShared={isShared}
+          permissionType={permissionType}
           selectedDoc={selectedDoc}
           docContent={docContent}
           docLoading={docLoading}
