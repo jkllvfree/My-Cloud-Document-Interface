@@ -10,6 +10,10 @@ export const userService = {
     return request('/user/me');
   },
 
+  ping: () => {
+    return request('/user/ping');
+  },
+
   // 更新头像 (注意：这里只传 URL 字符串给后端)
   updateAvatar: (avatarUrl) => {
     return request('/user/update/avatar', {

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import AuthPage from './pages/AuthPage';
 import HomePage from './pages/HomePage';
+import { userService } from './api/user';
 
 function App() {
   // 定义状态：user
@@ -36,6 +37,20 @@ function App() {
     // 同步更新 localStorage
     localStorage.setItem('user', JSON.stringify(newInfo)); 
   };
+
+  useEffect(() => {
+    if (!user) return;
+
+    const tick = () => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      userService.ping().catch(() => {});
+    };
+
+    tick();
+    const timer = setInterval(tick, 10000);
+    return () => clearInterval(timer);
+  }, [user]);
 
   // 根据 user 状态渲染不同页面，有USER就是Home，没有就是Auth
   return (

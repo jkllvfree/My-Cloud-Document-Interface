@@ -19,6 +19,7 @@ export default function EditorToolbar({
   onSave,
   isSaving,
   canManualSave = true,
+  hasChanges = true,
 }) {
   if (!editor) return null;
 
@@ -39,8 +40,14 @@ export default function EditorToolbar({
 
   const canUndo = editor && editor.can().undo && editor.can().undo();
   const canRedo = editor && editor.can().redo && editor.can().redo();
-  const saveDisabled = isSaving || !canManualSave;
-  const saveText = isSaving ? "保存中..." : canManualSave ? "保存" : "无权限";
+  const saveDisabled = isSaving || !canManualSave || !hasChanges;
+  const saveText = isSaving
+    ? "保存中..."
+    : !canManualSave
+      ? "无权限"
+      : !hasChanges
+        ? "已保存"
+        : "保存";
 
   return (
     <div className="flex flex-wrap items-center gap-1 p-2 border-b border-gray-200 bg-gray-50 rounded-t-lg sticky top-0 z-10">

@@ -8,6 +8,8 @@ import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
+import * as decoding from "lib0/decoding";
+import * as encoding from "lib0/encoding";
 
 const cursorColors = [
   "#958DF1",
@@ -43,14 +45,27 @@ export default function TipTapEditor({
 
   const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState("disconnected");
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
+  const bootstrapMinElapsedRef = useRef(false);
+  const [bootstrapTick, setBootstrapTick] = useState(0);
+  const [isDirty, setIsDirty] = useState(false);
   const imageInputRef = useRef(null);
   const timerRef = useRef(null);
   const initCheckTimerRef = useRef(null);
+  const bootstrapTimerRef = useRef({ min: null, max: null });
   const hasInitializedFromDbRef = useRef(false);
   const userColorRef = useRef(getRandomColor());
+  const lastSavedContentRef = useRef(null);
+  const lastYdocUpdateAtRef = useRef(0);
 
   const [provider, setProvider] = useState(null);
   const [ydoc, setYdoc] = useState(null);
+  const wsBatchRef = useRef({
+    ws: null,
+    originalSend: null,
+    pending: [],
+    timer: null,
+  });
 
   // 1. WebSocket 连接逻辑
   useEffect(() => {
@@ -58,17 +73,28 @@ export default function TipTapEditor({
       setProvider(null);
       setYdoc(null);
       hasInitializedFromDbRef.current = false;
+      setIsBootstrapping(false);
+      bootstrapMinElapsedRef.current = false;
       return;
     }
 
     if (!docId || !currentUserId) return;
 
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setStatus("disconnected");
+      return;
+    }
+
+    setIsBootstrapping(true);
+    bootstrapMinElapsedRef.current = false;
+    lastYdocUpdateAtRef.current = Date.now();
     const newYdoc = new Y.Doc();
     const newProvider = new WebsocketProvider(
       "ws://localhost:8080/ws",
       docId.toString(),
       newYdoc,
-      { params: { userId: currentUserId.toString() } }
+      { params: { userId: currentUserId.toString(), token } }
     );
 
     let statusTimer;
@@ -79,22 +105,166 @@ export default function TipTapEditor({
       }, 0);
     });
 
+    // 监听 WebSocket 的关闭事件，判断是否是被踢出
+    const handleWsClose = (event) => {
+      if (event.code === 4000 && event.reason === "KICKED_OUT") {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        alert('您的账号已在其他地方登录，您被迫下线。');
+        window.location.href = '/';
+      }
+    };
+
+    // 轮询检查 ws 实例并绑定 close 事件（因为 y-websocket 会在断线后重建 ws）
+    let wsCheckInterval = setInterval(() => {
+      if (newProvider.ws && !newProvider.ws.hasKickedOutListener) {
+        newProvider.ws.addEventListener("close", handleWsClose);
+        newProvider.ws.hasKickedOutListener = true;
+      }
+    }, 1000);
+
     setYdoc(newYdoc);
     setProvider(newProvider);
     hasInitializedFromDbRef.current = false;
 
     return () => {
+      clearInterval(wsCheckInterval);
       clearTimeout(statusTimer);
+      clearTimeout(bootstrapTimerRef.current.min);
+      clearTimeout(bootstrapTimerRef.current.max);
       newProvider.destroy();
       newYdoc.destroy();
+      setIsBootstrapping(false);
+      bootstrapMinElapsedRef.current = false;
     };
   }, [docId, isShared, currentUserId]);
+
+  useEffect(() => {
+    if (!isShared || !provider) return;
+
+    const batch = wsBatchRef.current;
+    const flushWindowMs = 80;
+    const maxBatchSize = 10;
+
+    const toUint8Array = (data) => {
+      if (data instanceof Uint8Array) return data;
+      if (data instanceof ArrayBuffer) return new Uint8Array(data);
+      if (ArrayBuffer.isView(data)) {
+        return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      }
+      return null;
+    };
+
+    const decodeUpdate = (u8) => {
+      const decoder = decoding.createDecoder(u8);
+      decoding.readVarUint(decoder);
+      decoding.readVarUint(decoder);
+      return decoding.readVarUint8Array(decoder);
+    };
+
+    const encodeUpdateMessage = (update) => {
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, 0);
+      encoding.writeVarUint(encoder, 2);
+      encoding.writeVarUint8Array(encoder, update);
+      return encoding.toUint8Array(encoder);
+    };
+
+    const flush = () => {
+      if (!batch.ws || batch.ws.readyState !== WebSocket.OPEN) return;
+      if (!batch.originalSend) return;
+      if (!batch.pending.length) return;
+      const merged =
+        batch.pending.length === 1
+          ? batch.pending[0]
+          : Y.mergeUpdatesV2(batch.pending);
+      batch.pending = [];
+      const msg = encodeUpdateMessage(merged);
+      batch.originalSend(msg);
+    };
+
+    const scheduleFlush = () => {
+      if (batch.timer) return;
+      batch.timer = setTimeout(() => {
+        batch.timer = null;
+        flush();
+      }, flushWindowMs);
+    };
+
+    const patchWsSendIfReady = () => {
+      const ws = provider.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (batch.ws === ws && batch.originalSend) return;
+
+      if (batch.ws && batch.originalSend) {
+        batch.ws.send = batch.originalSend;
+      }
+      if (batch.timer) {
+        clearTimeout(batch.timer);
+        batch.timer = null;
+      }
+      batch.pending = [];
+
+      batch.ws = ws;
+      batch.originalSend = ws.send.bind(ws);
+
+      ws.send = (data) => {
+        const u8 = toUint8Array(data);
+        if (!u8 || u8.length < 2) {
+          if (batch.pending.length) flush();
+          return batch.originalSend(data);
+        }
+        const isSyncUpdate = u8[0] === 0 && u8[1] === 2;
+        if (!isSyncUpdate) {
+          if (batch.pending.length) flush();
+          return batch.originalSend(data);
+        }
+        try {
+          const update = decodeUpdate(u8);
+          batch.pending.push(update);
+          if (batch.pending.length >= maxBatchSize) {
+            flush();
+          } else {
+            scheduleFlush();
+          }
+        } catch {
+          if (batch.pending.length) flush();
+          batch.originalSend(data);
+        }
+      };
+    };
+
+    const onStatus = (event) => {
+      if (event?.status === "connected") {
+        setTimeout(patchWsSendIfReady, 0);
+      }
+    };
+
+    provider.on("status", onStatus);
+    setTimeout(patchWsSendIfReady, 0);
+
+    return () => {
+      provider.off?.("status", onStatus);
+      if (batch.timer) {
+        clearTimeout(batch.timer);
+        batch.timer = null;
+      }
+      if (batch.pending.length) {
+        flush();
+      }
+      if (batch.ws && batch.originalSend) {
+        batch.ws.send = batch.originalSend;
+      }
+      batch.ws = null;
+      batch.originalSend = null;
+      batch.pending = [];
+    };
+  }, [isShared, provider]);
 
   // 2. 编辑器初始化 (必须在任何 return 之前！)
   const editor = useEditor(
     {
       content: isShared ? null : tryParseContent(initialContent),
-      editable: !isShared || permissionType !== "VIEWER",
       extensions: [
         StarterKit.configure({
           history: !isShared,
@@ -162,19 +332,38 @@ export default function TipTapEditor({
         },
       },
 
+      onCreate: ({ editor }) => {
+        if (isShared) return;
+        const jsonString = JSON.stringify(editor.getJSON());
+        lastSavedContentRef.current = jsonString;
+        setIsDirty(false);
+      },
       onUpdate: ({ editor }) => {
         if (isShared) return;
+        const jsonString = JSON.stringify(editor.getJSON());
+        if (jsonString === lastSavedContentRef.current) {
+          setIsDirty(false);
+          return;
+        }
+        setIsDirty(true);
         Promise.resolve().then(() => {
-          handleDebouncedSave(editor.getJSON());
+          handleDebouncedSave(jsonString);
         });
       },
     },
     [docId, isShared, provider, permissionType]
   );
 
+  useEffect(() => {
+    if (!editor) return;
+    const isEditable = !isShared || (permissionType !== "VIEWER" && !isBootstrapping);
+    editor.setEditable(isEditable);
+  }, [editor, isShared, permissionType, isBootstrapping]);
+
   // 3. 协作状态下：房间为空时由“最小 userId”负责把 document.content 写入 Yjs
   useEffect(() => {
     if (!isShared || !editor || !provider || !ydoc || !currentUserId) return;
+    if (!bootstrapMinElapsedRef.current) return;
 
     const scheduleInitCheck = () => {
       if (initCheckTimerRef.current) clearTimeout(initCheckTimerRef.current);
@@ -198,7 +387,7 @@ export default function TipTapEditor({
         const parsedContent = tryParseContent(initialContent);
         editor.commands.setContent(parsedContent);
         hasInitializedFromDbRef.current = true;
-      }, 400);
+      }, 200);
     };
 
     scheduleInitCheck();
@@ -214,17 +403,78 @@ export default function TipTapEditor({
       ydoc.off("update", onYdocUpdate);
       if (initCheckTimerRef.current) clearTimeout(initCheckTimerRef.current);
     };
-  }, [isShared, editor, provider, ydoc, initialContent, currentUserId]);
+  }, [isShared, editor, provider, ydoc, initialContent, currentUserId, bootstrapTick]);
+
+  useEffect(() => {
+    if (!isShared || !editor || !provider || !ydoc) return;
+    if (status !== "connected") return;
+
+    let cancelled = false;
+    const quietMs = 250;
+
+    const clearTimers = () => {
+      clearTimeout(bootstrapTimerRef.current.min);
+      clearTimeout(bootstrapTimerRef.current.max);
+      bootstrapTimerRef.current.min = null;
+      bootstrapTimerRef.current.max = null;
+    };
+
+    const finish = () => {
+      if (cancelled) return;
+      clearTimers();
+      setIsBootstrapping(false);
+    };
+
+    const checkReady = () => {
+      if (cancelled) return;
+      if (!bootstrapMinElapsedRef.current) return;
+      const fragment = ydoc.getXmlFragment("default");
+      const cloudHasContent = fragment.length > 0;
+      const dbIsEmpty = !initialContent;
+      if (dbIsEmpty) {
+        finish();
+        return;
+      }
+      if (!cloudHasContent) return;
+      if (Date.now() - lastYdocUpdateAtRef.current >= quietMs) finish();
+    };
+
+    clearTimers();
+    setIsBootstrapping(true);
+    bootstrapMinElapsedRef.current = false;
+    bootstrapTimerRef.current.min = setTimeout(() => {
+      if (cancelled) return;
+      bootstrapMinElapsedRef.current = true;
+      setBootstrapTick((t) => t + 1);
+      checkReady();
+    }, 800);
+    bootstrapTimerRef.current.max = setTimeout(finish, 4000);
+
+    const onYdocUpdate = () => {
+      lastYdocUpdateAtRef.current = Date.now();
+      setTimeout(checkReady, quietMs);
+    };
+    ydoc.on("update", onYdocUpdate);
+    checkReady();
+
+    return () => {
+      cancelled = true;
+      ydoc.off("update", onYdocUpdate);
+      clearTimers();
+    };
+  }, [isShared, editor, provider, ydoc, status, initialContent]);
 
   // 防抖保存
   const handleDebouncedSave = useCallback(
-    (json) => {
+    (jsonString) => {
       if (timerRef.current) clearTimeout(timerRef.current);
       setIsSaving(true);
       // 用 microtask 延迟，避免在渲染期间触发状态更新
       timerRef.current = setTimeout(async () => {
         try {
-          await onSave(JSON.stringify(json));
+          await onSave(jsonString);
+          lastSavedContentRef.current = jsonString;
+          setIsDirty(false);
         } finally {
           setIsSaving(false);
         }
@@ -235,10 +485,14 @@ export default function TipTapEditor({
 
   const handleSaveDoc = async () => {
     if (!editor) return;
-    if (isShared && !canManualSave) return;
+    if (isShared && (!canManualSave || isBootstrapping)) return;
+    if (!isShared && !isDirty) return;
     setIsSaving(true);
     try {
-      await onSave(JSON.stringify(editor.getJSON()));
+      const jsonString = JSON.stringify(editor.getJSON());
+      await onSave(jsonString);
+      lastSavedContentRef.current = jsonString;
+      setIsDirty(false);
     } finally {
       setIsSaving(false);
     }
@@ -291,7 +545,8 @@ export default function TipTapEditor({
           }}
           onSave={handleSaveDoc}
           isSaving={isSaving}
-          canManualSave={canManualSave}
+          canManualSave={canManualSave && !isBootstrapping}
+          hasChanges={isShared ? true : isDirty}
         />
         <div className="flex items-center gap-2 px-2">
           {isShared ? (
@@ -314,9 +569,18 @@ export default function TipTapEditor({
       </div>
       <div
         className="flex-1 overflow-y-auto cursor-text bg-white"
-        onClick={() => editor.chain().focus().run()}
+        onClick={() => {
+          if (isBootstrapping) return;
+          editor.chain().focus().run();
+        }}
       >
-        <EditorContent editor={editor} />
+        {isShared && isBootstrapping ? (
+          <div className="h-full flex items-center justify-center text-gray-400">
+            正在加载协作内容...
+          </div>
+        ) : (
+          <EditorContent editor={editor} />
+        )}
       </div>
     </div>
   );

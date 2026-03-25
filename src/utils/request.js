@@ -33,11 +33,25 @@ export const request = async (endpoint, options = {}) => {
     
     // 5. 处理 HTTP 错误状态 (如 401 token 过期)
     if (response.status === 401) {
+      let isKickedOut = false;
+      try {
+        const errorData = await response.clone().json();
+        if (errorData?.msg === 'KICKED_OUT' || errorData?.message === 'KICKED_OUT') {
+          isKickedOut = true;
+        }
+      } catch (e) {
+        // 解析失败忽略
+      }
+      
       // Token 过期或无效，强制登出
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      
+      if (isKickedOut) {
+        alert('您的账号已在其他地方登录，您被迫下线。');
+      }
       window.location.href = '/';
-      return Promise.reject({ msg: '登录已过期，请重新登录' });
+      return Promise.reject({ msg: isKickedOut ? '账号已在其他地方登录' : '登录已过期，请重新登录' });
     }
 
     const contentType = response.headers.get('content-type') || '';
